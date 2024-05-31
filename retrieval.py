@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from data_loader import load_data
+import time
 import os
 import numpy as np
 import pickle
@@ -27,7 +28,25 @@ def extract_base_features(model, dataloader):
     return base_features.cpu()
 
 
-def retrieve(model, query_image, base_features, K):
+def extract_base_features_latent(model, model_H, dataloader):
+    """提取特征"""
+    base_fine_features, base_H_features = [], []
+    with torch.no_grad():
+        for images, _ in dataloader:
+            images = images.to(DEVICE)
+            fine_features = model(images)
+            H_features = model_H(fine_features)
+            H_features = torch.where(H_features >= 0.5, 1, 0)
+            fine_features = fine_features.view(fine_features.size(0), -1)  # 展平
+            H_features = H_features.view(H_features.size(0), -1)  # 展平
+            base_fine_features.append(fine_features)
+            base_H_features.append(H_features)
+    base_fine_features = torch.cat(base_fine_features)
+    base_H_features = torch.cat(base_H_features)
+    return base_fine_features.cpu(), base_H_features.cpu()
+
+
+def retrieve(model, query_image, base_features, K=20):
     """查询 query_image 的前 K 个相似图像索引"""
     with torch.no_grad():
         query_image = query_image.to(DEVICE)
@@ -40,6 +59,25 @@ def retrieve(model, query_image, base_features, K):
     return top_k_indices.cpu().numpy()
 
 
+def retrieve_latent(model, model_H, query_image, base_features, base_H_features, K=20):
+    """查询 query_image 的前 K 个相似图像索引--启用隐层"""
+    with torch.no_grad():
+        query_image = query_image.to(DEVICE)
+        query_fine_feature = model(query_image.unsqueeze(0))
+        query_H_feature = model_H(query_fine_feature)
+        query_H_feature = torch.where(query_H_feature >= 0.5, 1, 0)
+        query_fine_feature = query_fine_feature.view(query_fine_feature.size(0), -1)
+        query_H_feature = query_H_feature.view(query_H_feature.size(0), -1)
+    # 计算汉明距离
+    hamming_distance = torch.sum(torch.abs(base_H_features - query_H_feature), dim=1)
+    top_k_indices_Coarse = torch.where(hamming_distance < 20)[0]  # 粗检索
+    # top_k_indices_Coarse = torch.topk(hamming_distance, 2 * K, largest=False).indices  # 粗检索
+    # 计算余弦相似度
+    cos_sim = F.cosine_similarity(query_fine_feature, base_features[top_k_indices_Coarse])
+    top_k_indices = top_k_indices_Coarse[torch.topk(cos_sim, K).indices]  # 精检索
+    return top_k_indices.cpu().numpy()
+
+
 def denormalize(tensor, mean, std):
     """反标准化"""
     for t, m, s in zip(tensor, mean, std):
@@ -48,7 +86,7 @@ def denormalize(tensor, mean, std):
 
 
 # 评估检索性能并显示图像
-def evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, K=20, plot=False, plot_root=None):
+def evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, K=20, plot=False, plot_root=None, base_H_features=None, model_H=None):
     last_query_label = None
     PK_list = {}
     PK, count_landmark = 0., 0
@@ -56,7 +94,10 @@ def evaluate_and_display(model, dataset_query, base_features, base_labels, datas
     os.makedirs(plot_folder_K, exist_ok=True)
     for idx, (query_image, _) in enumerate(dataset_query):
         query_label = dataset_query.imgs[idx][0].split('/')[3]
-        top_k_indices = retrieve(model, query_image, base_features, K)
+        if base_H_features is None:
+            top_k_indices = retrieve(model, query_image, base_features, K)
+        else:
+            top_k_indices = retrieve_latent(model, model_H, query_image, base_features, base_H_features, K)
         top_k_labels = base_labels[top_k_indices]
         # 计算前 K 个检索结果中与查询相关的样本占比
         relevant_count = (top_k_labels == query_label).sum()
@@ -106,7 +147,10 @@ if __name__ == '__main__':
     # 加载模型 (AlexNet / ResNet-50)
     ckpt = './ckpt'
     if args.model == 'alexnet':
-        save_model = 'model_alexnet_20240530-095321.pkl'
+        if args.latent_layer:
+            save_model = 'model_alexnet_20240529-220813.pkl'
+        else:
+            save_model = 'model_alexnet_20240530-095321.pkl'
     else:
         save_model = 'model_resnet_20240529-220809.pkl'
     model_name = args.model
@@ -119,35 +163,60 @@ if __name__ == '__main__':
     else:
         model = nn.Sequential(*list(model.children())[:-1])
     model.eval()
+    if args.model == 'alexnet' and args.latent_layer:
+        model_H = model.classifier[-2:]
+        model.classifier = nn.Sequential(*list(model.classifier.children())[:-2])
 
     # 加载 base 数据
     dataset, dataloader = load_data(args.data, 'base', args.batchsize)
     # 提取并保存 base 特征和标签
     if not os.path.exists(f'base_features/features_{save_model}'):
-        base_features = extract_base_features(model, dataloader)
         base_labels = np.array(dataset.imgs)[:, 0]
         base_labels = np.vectorize(lambda x: x.split('/')[3])(base_labels)
-        os.makedirs('base_features', exist_ok=True)
-        with open(f'base_features/features_{save_model}', 'wb') as f:
-            pickle.dump({
-                'features': base_features,
-                'labels': base_labels,
-            }, f)
+        if args.model == 'alexnet' and args.latent_layer:
+            base_features, base_H_features = extract_base_features_latent(model, model_H, dataloader)
+            os.makedirs('base_features', exist_ok=True)
+            with open(f'base_features/features_{save_model}', 'wb') as f:
+                pickle.dump({
+                    'features': base_features,
+                    'H_features': base_H_features,
+                    'labels': base_labels,
+                }, f)
+        else:
+            base_features = extract_base_features(model, dataloader)
+            os.makedirs('base_features', exist_ok=True)
+            with open(f'base_features/features_{save_model}', 'wb') as f:
+                pickle.dump({
+                    'features': base_features,
+                    'labels': base_labels,
+                }, f)
 
     # 加载 base 特征和标签
+    print(f"Loading base features & labels from './base_features/features_{save_model}'...")
     with open(f'base_features/features_{save_model}', 'rb') as f:
         log = pickle.load(f)
+        if args.model == 'alexnet' and args.latent_layer:
+            base_H_features = log['H_features'].to(DEVICE)
         base_features = log['features'].to(DEVICE)
         base_labels = log['labels']
+
     # 加载 query 数据
+    print(f"Loading query images...")
     dataset_query, _ = load_data(args.data, 'query', 1)
 
     # 保存图像的文件夹
     plot_root = os.path.join('./plots', save_model.split('.')[0])
     os.makedirs(plot_root, exist_ok=True)
     # 评估检索性能并显示图像
-    # PK_list = evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, args.K, args.plot)
-    PK_list = {K: evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, K, args.plot, plot_root) for K in [60]}
+    print("\nStart image retrieval.")
+    since = time.time()
+    # PK_list = evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, args.K, args.plot, plot_root)
+    if args.model == 'alexnet' and args.latent_layer:
+        PK_list = {K: evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, K, args.plot, plot_root, base_H_features, model_H) for K in [20, 40, 60]}
+    else:
+        PK_list = {K: evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, K, args.plot, plot_root) for K in [20, 40, 60]}
+    time_pass = time.time() - since
+    print(f"Time cost: {time_pass:.2f}s")
     print(f"K=20 {PK_list[20]}")
     print(f"K=40 {PK_list[40]}")
     print(f"K=60 {PK_list[60]}")
@@ -181,3 +250,4 @@ if __name__ == '__main__':
     plt.tight_layout()
     plt.savefig(f"{plot_root}/P@K.png", bbox_inches='tight')
     plt.close()
+
