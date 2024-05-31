@@ -50,10 +50,10 @@ def denormalize(tensor, mean, std):
 # 评估检索性能并显示图像
 def evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, K=20, plot=False, plot_root=None):
     last_query_label = None
-    PK_list = []
+    PK_list = {}
     PK, count_landmark = 0., 0
-    plot_folder = os.path.join(plot_root, f'{K}')
-    os.makedirs(plot_folder, exist_ok=True)
+    plot_folder_K = os.path.join(plot_root, f'{K}')
+    os.makedirs(plot_folder_K, exist_ok=True)
     for idx, (query_image, _) in enumerate(dataset_query):
         query_label = dataset_query.imgs[idx][0].split('/')[3]
         top_k_indices = retrieve(model, query_image, base_features, K)
@@ -67,7 +67,7 @@ def evaluate_and_display(model, dataset_query, base_features, base_labels, datas
             PK = relevant_count / K
             count_landmark = 1
         elif last_query_label != query_label:
-            PK_list.append(PK / count_landmark)
+            PK_list[last_query_label] = PK / count_landmark
             last_query_label = query_label
             PK = relevant_count / K
             count_landmark = 1
@@ -96,9 +96,9 @@ def evaluate_and_display(model, dataset_query, base_features, base_labels, datas
                 axes[row, col].axis('off')
             for i in range(1, 10):
                 axes[0, i].axis('off')  # 隐藏多余子图
-            plt.savefig(f"{plot_folder}/{str(idx).zfill(2)}.png")
+            plt.savefig(f"{plot_folder_K}/{str(idx).zfill(2)}.png", bbox_inches='tight')
             plt.close()
-    PK_list.append(PK / count_landmark)
+    PK_list[last_query_label] = PK / count_landmark
     return PK_list
 
 
@@ -111,6 +111,8 @@ if __name__ == '__main__':
         save_model = 'model_resnet_20240529-220809.pkl'
     model_name = args.model
     model = load_model(model_name).to(DEVICE)
+    print(f"Loading model from '{os.path.join(ckpt, save_model)}'...")
+    print(f"Model: {args.model}, Latent Layer: {args.latent_layer}")
     model.load_state_dict(torch.load(os.path.join(ckpt, save_model)))  # 加载最佳模型参数
     if args.model == 'alexnet':
         model.classifier = nn.Sequential(*list(model.classifier.children())[:-1])
@@ -141,12 +143,41 @@ if __name__ == '__main__':
     dataset_query, _ = load_data(args.data, 'query', 1)
 
     # 保存图像的文件夹
-    plot_folder_path = os.path.join('./plots', save_model.split('.')[0])
-    os.makedirs(plot_folder_path, exist_ok=True)
+    plot_root = os.path.join('./plots', save_model.split('.')[0])
+    os.makedirs(plot_root, exist_ok=True)
     # 评估检索性能并显示图像
     # PK_list = evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, args.K, args.plot)
-    PK_list = {K: evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, K, args.plot, plot_folder_path) for K in [20, 40, 60]}
+    PK_list = {K: evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, K, args.plot, plot_root) for K in [60]}
     print(f"K=20 {PK_list[20]}")
     print(f"K=40 {PK_list[40]}")
     print(f"K=60 {PK_list[60]}")
 
+    # 绘制每个 landmark 的 P@K 图
+    landmarks = list(PK_list[20].keys())
+    cols = 3
+    rows = (len(landmarks) - 1) // cols + 1
+    fig, axes = plt.subplots(rows, cols, figsize=(8 * cols, 6 * rows))
+    for i, landmark in enumerate(landmarks):
+        row, col = i // cols, i % cols
+        ax = axes[row, col]
+        Ks = sorted(PK_list.keys())
+        P_at_K = [PK_list[K][landmark] for K in Ks]
+        ax.scatter(Ks, P_at_K, marker='o', s=140)
+        for K, P in zip(Ks, P_at_K):
+            ax.text(K, P - 0.03, f'{P:.2f}', fontsize=13)
+        ax.set_xlabel('K', fontsize=15)
+        ax.set_ylabel('Precision', fontsize=15)
+        ax.set_title(f'Precision@K for {landmark}', fontsize=15)
+        ax.set_xticks(Ks)
+        ax.set_yticks([0.45, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00])
+        ax.set_xlim(10, 70)
+        ax.set_ylim(0.45, 1.05)
+        ax.grid(True, linestyle='--')
+    if len(landmarks) < rows * cols:
+        for i in range(len(landmarks), rows * cols):
+            row = i // cols
+            col = i % cols
+            fig.delaxes(axes[row, col])
+    plt.tight_layout()
+    plt.savefig(f"{plot_root}/P@K.png", bbox_inches='tight')
+    plt.close()
