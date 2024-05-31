@@ -1,5 +1,9 @@
 # Image Retrieval
-交大视觉印象数据集
+
+北京交通大学2024春季 邬俊老师课程《计算机视觉基础》
+
+交大视觉印象数据集2024
+
 ## 1. Prepare training dataset
 
 Put the data under `${DATA_ROOT}`. The prepared directory would look like:
@@ -31,7 +35,7 @@ Now we have a training dataset (is set to `./data/base` by default) containing *
 
 ```shell
 conda activate your_enviroment
-cd /your/path/to/BJTUcv
+cd /your/path/to/your_project
 ```
 
 - **AlexNet w/o latent layer**
@@ -80,5 +84,24 @@ python retrieval.py --model alexnet --data './your/data/path' [--plot]
 python retrieval.py --model resnet --data './your/data/path' [--plot]
 ```
 
+## Example of results
 
+- **AlexNet w/o latent layer**
 
+  `08.png` in `./plots/your_model_name/20`.
+
+  ![08](images/08.png)
+
+  `P@K.png` in `./plots/your_model_name`.
+
+  ![P@K](images/P@K.png)
+
+- **ResNet-50 w/o latent layer**
+
+  `16.png` in `./plots/your_model_name/60`.
+
+  ![16](images/16.png)
+
+  `P@K.png` in `./plots/your_model_name`.
+
+  ![P@K](images/P@K-1717145786556-7.png)
