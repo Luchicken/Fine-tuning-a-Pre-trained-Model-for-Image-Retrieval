@@ -1,4 +1,5 @@
-# Image Retrieval（交大视觉印象数据集）
+# Image Retrieval
+交大视觉印象数据集
 ## 1. Prepare training dataset
 
 Put the data under `${DATA_ROOT}`. The prepared directory would look like:
