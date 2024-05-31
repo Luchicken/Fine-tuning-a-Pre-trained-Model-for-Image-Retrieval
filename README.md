@@ -69,24 +69,24 @@ Adding `--plot` to the command line will export the retrieved images for each im
 - **AlexNet w/o latent layer**
 
 ```shell
-python retrieval.py --model alexnet --data './your/data/path' [--plot]
+python retrieval.py --model alexnet --data './your/data/path' --dist [cos/euclidean] [--plot]
 ```
 
 - **AlexNet w/ latent layer**
 
 ```shell
-python retrieval.py --model alexnet --data './your/data/path'  --latent_layer [--plot]
+python retrieval.py --model alexnet --data './your/data/path' --latent_layer --dist [cos/euclidean] [--plot]
 ```
 
 - **ResNet-50 w/o latent layer**
 
 ```shell
-python retrieval.py --model resnet --data './your/data/path' [--plot]
+python retrieval.py --model resnet --data './your/data/path' --dist [cos/euclidean] [--plot]
 ```
 
 ## Example of results
 
-- **AlexNet w/o latent layer**
+- **AlexNet w/o latent layer (cosine_similarity)**
 
   `08.png` in `./plots/your_model_name/20`.
 
@@ -96,7 +96,11 @@ python retrieval.py --model resnet --data './your/data/path' [--plot]
 
   ![P@K](images/P@K.png)
 
-- **AlexNet w/ latent layer**
+- **AlexNet w/o latent layer (euclidean_dist)**
+
+  ![P@K](images/P@K-1717172575382-1.png)
+
+- **AlexNet w/ latent layer (binary + cosine_similarity)**
 
   `08.png` in `./plots/your_model_name/20`.
 
@@ -106,7 +110,11 @@ python retrieval.py --model resnet --data './your/data/path' [--plot]
 
   ![P@K](images/P@K-1717163049735-22.png)
 
-- **ResNet-50 w/o latent layer**
+- **AlexNet w/ latent layer (binary + euclidean_dist)**
+
+  ![P@K](images/P@K-1717172715739-3.png)
+
+- **ResNet-50 w/o latent layer (cosine_similarity)**
 
   `16.png` in `./plots/your_model_name/60`.
 
@@ -115,6 +123,7 @@ python retrieval.py --model resnet --data './your/data/path' [--plot]
   `P@K.png` in `./plots/your_model_name`.
 
   ![P@K](images/P@K-1717145786556-7.png)
+  
+- **ResNet-50 w/o latent layer (euclidean_dist)**
 
-
-
+  ![P@K](images/P@K-1717172893845-5.png)
