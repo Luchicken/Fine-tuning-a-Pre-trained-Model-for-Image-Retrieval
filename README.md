@@ -74,8 +74,8 @@ python retrieval.py --model alexnet --data './your/data/path' [--plot]
 
 - **AlexNet w/ latent layer**
 
-```
-
+```shell
+python retrieval.py --model alexnet --data './your/data/path'  --latent_layer [--plot]
 ```
 
 - **ResNet-50 w/o latent layer**
@@ -96,6 +96,16 @@ python retrieval.py --model resnet --data './your/data/path' [--plot]
 
   ![P@K](images/P@K.png)
 
+- **AlexNet w/ latent layer**
+
+  `08.png` in `./plots/your_model_name/20`.
+
+  ![08](images/08-1717163494741-25.png)
+
+  `P@K.png` in `./plots/your_model_name`.
+
+  ![P@K](images/P@K-1717163049735-22.png)
+
 - **ResNet-50 w/o latent layer**
 
   `16.png` in `./plots/your_model_name/60`.
@@ -105,3 +115,6 @@ python retrieval.py --model resnet --data './your/data/path' [--plot]
   `P@K.png` in `./plots/your_model_name`.
 
   ![P@K](images/P@K-1717145786556-7.png)
+
+
+
