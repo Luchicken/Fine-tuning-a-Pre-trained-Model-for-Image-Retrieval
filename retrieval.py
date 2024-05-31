@@ -46,20 +46,24 @@ def extract_base_features_latent(model, model_H, dataloader):
     return base_fine_features.cpu(), base_H_features.cpu()
 
 
-def retrieve(model, query_image, base_features, K=20):
+def retrieve(model, query_image, base_features, K=20, dist='cos'):
     """查询 query_image 的前 K 个相似图像索引"""
     with torch.no_grad():
         query_image = query_image.to(DEVICE)
         query_feature = model(query_image.unsqueeze(0))
         query_feature = query_feature.view(query_feature.size(0), -1)
-    # 计算余弦相似度
-    cos_sim = F.cosine_similarity(query_feature, base_features)  # shape: (6445)
-    # 获取前 K 个相似的图像索引
-    top_k_indices = torch.topk(cos_sim, K).indices
+    if dist == 'cos':
+        # 计算余弦相似度
+        cos_sim = F.cosine_similarity(query_feature, base_features)  # shape: (6445)
+        top_k_indices = torch.topk(cos_sim, K).indices
+    else:
+        # 计算欧氏距离
+        euclidean_dist = torch.sqrt(torch.sum((query_feature - base_features) ** 2, dim=1))
+        top_k_indices = torch.topk(euclidean_dist, K, largest=False).indices
     return top_k_indices.cpu().numpy()
 
 
-def retrieve_latent(model, model_H, query_image, base_features, base_H_features, K=20):
+def retrieve_latent(model, model_H, query_image, base_features, base_H_features, K=20, dist='cos'):
     """查询 query_image 的前 K 个相似图像索引--启用隐层"""
     with torch.no_grad():
         query_image = query_image.to(DEVICE)
@@ -72,9 +76,15 @@ def retrieve_latent(model, model_H, query_image, base_features, base_H_features,
     hamming_distance = torch.sum(torch.abs(base_H_features - query_H_feature), dim=1)
     top_k_indices_Coarse = torch.where(hamming_distance < 20)[0]  # 粗检索
     # top_k_indices_Coarse = torch.topk(hamming_distance, 2 * K, largest=False).indices  # 粗检索
-    # 计算余弦相似度
-    cos_sim = F.cosine_similarity(query_fine_feature, base_features[top_k_indices_Coarse])
-    top_k_indices = top_k_indices_Coarse[torch.topk(cos_sim, K).indices]  # 精检索
+    if dist == 'cos':
+        # 计算余弦相似度
+        cos_sim = F.cosine_similarity(query_fine_feature, base_features[top_k_indices_Coarse])
+        top_k_indices = top_k_indices_Coarse[torch.topk(cos_sim, K).indices]  # 精检索
+    else:
+        # 计算欧氏距离
+        euclidean_dist = torch.sqrt(torch.sum((query_fine_feature - base_features[top_k_indices_Coarse]) ** 2, dim=1))
+        top_k_indices = top_k_indices_Coarse[torch.topk(euclidean_dist, K, largest=False).indices]  # 精检索
+    # top_k_indices = torch.topk(hamming_distance, K, largest=False).indices
     return top_k_indices.cpu().numpy()
 
 
@@ -86,7 +96,7 @@ def denormalize(tensor, mean, std):
 
 
 # 评估检索性能并显示图像
-def evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, K=20, plot=False, plot_root=None, base_H_features=None, model_H=None):
+def evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, K=20, plot=False, plot_root=None, base_H_features=None, model_H=None, dist='cos'):
     last_query_label = None
     PK_list = {}
     PK, count_landmark = 0., 0
@@ -95,9 +105,9 @@ def evaluate_and_display(model, dataset_query, base_features, base_labels, datas
     for idx, (query_image, _) in enumerate(dataset_query):
         query_label = dataset_query.imgs[idx][0].split('/')[3]
         if base_H_features is None:
-            top_k_indices = retrieve(model, query_image, base_features, K)
+            top_k_indices = retrieve(model, query_image, base_features, K, dist)
         else:
-            top_k_indices = retrieve_latent(model, model_H, query_image, base_features, base_H_features, K)
+            top_k_indices = retrieve_latent(model, model_H, query_image, base_features, base_H_features, K, dist)
         top_k_labels = base_labels[top_k_indices]
         # 计算前 K 个检索结果中与查询相关的样本占比
         relevant_count = (top_k_labels == query_label).sum()
@@ -212,9 +222,9 @@ if __name__ == '__main__':
     since = time.time()
     # PK_list = evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, args.K, args.plot, plot_root)
     if args.model == 'alexnet' and args.latent_layer:
-        PK_list = {K: evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, K, args.plot, plot_root, base_H_features, model_H) for K in [20, 40, 60]}
+        PK_list = {K: evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, K, args.plot, plot_root, base_H_features, model_H, dist=args.dist) for K in [20, 40, 60]}
     else:
-        PK_list = {K: evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, K, args.plot, plot_root) for K in [20, 40, 60]}
+        PK_list = {K: evaluate_and_display(model, dataset_query, base_features, base_labels, dataset, K, args.plot, plot_root, dist=args.dist) for K in [20, 40, 60]}
     time_pass = time.time() - since
     print(f"Time cost: {time_pass:.2f}s")
     print(f"K=20 {PK_list[20]}")
@@ -239,8 +249,10 @@ if __name__ == '__main__':
         ax.set_title(f'Precision@K for {landmark}', fontsize=15)
         ax.set_xticks(Ks)
         ax.set_yticks([0.45, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00])
+        # ax.set_yticks([0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00])
         ax.set_xlim(10, 70)
         ax.set_ylim(0.45, 1.05)
+        # ax.set_ylim(0.20, 1.05)
         ax.grid(True, linestyle='--')
     if len(landmarks) < rows * cols:
         for i in range(len(landmarks), rows * cols):
