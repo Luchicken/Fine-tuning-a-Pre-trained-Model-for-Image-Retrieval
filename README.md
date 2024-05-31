@@ -44,7 +44,7 @@ cd /your/path/to/your_project
 python finetune.py --model alexnet --batchsize 64 --lr 0.001 --num_epochs 300 --data './your/data/path' --seed 42
 ```
 
-- **AlexNet w/ latent layer** [Deep Learning of Binary Hash Codes for Fast Image Retrieval](https://homepage.iis.sinica.edu.tw/~kevinlin311.tw/cvprw15.pdf)
+- **AlexNet w/ latent layer** [CVPRWorkshop2015 Deep Learning of Binary Hash Codes for Fast Image Retrieval](https://homepage.iis.sinica.edu.tw/~kevinlin311.tw/cvprw15.pdf)
 
 ```shell
 python finetune.py --model alexnet --batchsize 64 --lr 0.001 --num_epochs 300 --data './your/data/path' --seed 42 --latent_layer --latent_size 48
