@@ -17,5 +17,6 @@ def get_args():
     parser.add_argument('--latent_size', type=int, default=48)  # 隐层大小
     parser.add_argument('--K', type=int, default=20, help='20/40/60')  # top K
     parser.add_argument('--plot', action='store_true', help='Plot the retrieval results')  # 是否绘制检索结果
+    parser.add_argument('--dist', type=str, default='cos', help='cos/euclidean')
     return parser.parse_args()
 
